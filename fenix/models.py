@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 import uuid
 
@@ -93,6 +94,42 @@ class TeamUser(models.Model):
 
     def __str__(self):
         return f"@{self.user.github_handle} in {self.team.name} ({self.role})"
+
+
+class TeamInvitation(models.Model):
+    """Invitaciones a equipos"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
+        ('rejected', 'Rejected'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='invitations')
+    invited_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_invitations')
+    invited_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_invitations')
+    role = models.CharField(max_length=20, choices=TeamUser.ROLE_CHOICES, default='member')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'fenix_team_invitations'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['invited_user', 'status']),
+            models.Index(fields=['team', 'status']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['team', 'invited_user'],
+                condition=Q(status='pending'),
+                name='unique_pending_invitation',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Invitation for @{self.invited_user.github_handle} to {self.team.name} ({self.status})"
 
 
 class TeamSession(models.Model):

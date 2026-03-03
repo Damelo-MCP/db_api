@@ -71,6 +71,29 @@ class TeamAddMemberIn(Schema):
 
 
 # ============================================
+# TEAM INVITATION SCHEMAS
+# ============================================
+
+class TeamInvitationCreateIn(Schema):
+    github_handle: str
+    role: str = 'member'
+
+
+class TeamInvitationOut(Schema):
+    id: UUID
+    team: TeamOut
+    invited_user: UserOut
+    invited_by: UserOut
+    role: str
+    status: str
+    created_at: datetime
+
+
+class TeamInvitationRespondIn(Schema):
+    action: str  # 'accept' or 'reject'
+
+
+# ============================================
 # SESSION SCHEMAS
 # ============================================
 

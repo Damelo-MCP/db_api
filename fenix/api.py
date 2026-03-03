@@ -8,10 +8,11 @@ from dotenv import load_dotenv
 
 import os
 
-from .models import User, Team, Session, TeamUser, TeamSession
+from .models import User, Team, Session, TeamUser, TeamSession, TeamInvitation
 from .schemas import (
     UserOut, ValidateOrCreateUserIn, ValidateOrCreateUserOut,
     TeamOut, TeamCreateIn, TeamDetailOut, TeamAddMemberIn, TeamMemberOut,
+    TeamInvitationCreateIn, TeamInvitationOut, TeamInvitationRespondIn,
     SessionOut, SessionCreateIn, SessionDetailOut, SessionUpdateIn,
     ShareSessionWithTeamIn, ShareSessionWithTeamOut, TeamSessionOut,
     ErrorOut, SuccessOut
@@ -308,6 +309,215 @@ def remove_team_member(request, team_id: str, github_handle: str):
         "success": True,
         "message": "Member removed from team"
     }
+
+
+# ============================================
+# TEAM INVITATION ENDPOINTS
+# ============================================
+
+@api.post("/teams/{team_id}/invitations", auth=auth, response={201: TeamInvitationOut, 400: ErrorOut, 403: ErrorOut, 404: ErrorOut}, tags=["Team Invitations"])
+def create_invitation(request, team_id: str, payload: TeamInvitationCreateIn):
+    """Enviar una invitación a un usuario para unirse al equipo"""
+    user = get_user_from_request(request)
+    team = get_object_or_404(Team, id=team_id)
+
+    # Verificar que el caller es owner o admin
+    membership = TeamUser.objects.filter(team=team, user=user).first()
+    if not membership or membership.role not in ['owner', 'admin']:
+        return 403, {"detail": "Only owners and admins can invite members"}
+
+    # No invitarse a sí mismo
+    if payload.github_handle == user.github_handle:
+        return 400, {"detail": "You cannot invite yourself"}
+
+    # Buscar usuario invitado
+    try:
+        invited_user = User.objects.get(github_handle=payload.github_handle)
+    except User.DoesNotExist:
+        return 400, {"detail": f"User @{payload.github_handle} not found"}
+
+    # Verificar que no sea ya miembro
+    if TeamUser.objects.filter(team=team, user=invited_user).exists():
+        return 400, {"detail": f"@{payload.github_handle} is already a member of this team"}
+
+    # Verificar que no tenga invitación pendiente
+    if TeamInvitation.objects.filter(team=team, invited_user=invited_user, status='pending').exists():
+        return 400, {"detail": f"@{payload.github_handle} already has a pending invitation"}
+
+    invitation = TeamInvitation.objects.create(
+        team=team,
+        invited_user=invited_user,
+        invited_by=user,
+        role=payload.role,
+    )
+
+    return 201, {
+        "id": invitation.id,
+        "team": {
+            "id": team.id,
+            "name": team.name,
+            "description": team.description,
+            "owner": {
+                "github_handle": team.owner.github_handle,
+                "email": team.owner.email,
+                "display_name": team.owner.display_name,
+                "is_active": team.owner.is_active,
+                "created_at": team.owner.created_at,
+            },
+            "created_at": team.created_at,
+        },
+        "invited_user": {
+            "github_handle": invited_user.github_handle,
+            "email": invited_user.email,
+            "display_name": invited_user.display_name,
+            "is_active": invited_user.is_active,
+            "created_at": invited_user.created_at,
+        },
+        "invited_by": {
+            "github_handle": user.github_handle,
+            "email": user.email,
+            "display_name": user.display_name,
+            "is_active": user.is_active,
+            "created_at": user.created_at,
+        },
+        "role": invitation.role,
+        "status": invitation.status,
+        "created_at": invitation.created_at,
+    }
+
+
+@api.get("/invitations", auth=auth, response=List[TeamInvitationOut], tags=["Team Invitations"])
+def list_my_invitations(request):
+    """Listar mis invitaciones pendientes"""
+    user = get_user_from_request(request)
+
+    invitations = TeamInvitation.objects.filter(
+        invited_user=user, status='pending'
+    ).select_related('team', 'team__owner', 'invited_user', 'invited_by')
+
+    return [
+        {
+            "id": inv.id,
+            "team": {
+                "id": inv.team.id,
+                "name": inv.team.name,
+                "description": inv.team.description,
+                "owner": {
+                    "github_handle": inv.team.owner.github_handle,
+                    "email": inv.team.owner.email,
+                    "display_name": inv.team.owner.display_name,
+                    "is_active": inv.team.owner.is_active,
+                    "created_at": inv.team.owner.created_at,
+                },
+                "created_at": inv.team.created_at,
+            },
+            "invited_user": {
+                "github_handle": inv.invited_user.github_handle,
+                "email": inv.invited_user.email,
+                "display_name": inv.invited_user.display_name,
+                "is_active": inv.invited_user.is_active,
+                "created_at": inv.invited_user.created_at,
+            },
+            "invited_by": {
+                "github_handle": inv.invited_by.github_handle,
+                "email": inv.invited_by.email,
+                "display_name": inv.invited_by.display_name,
+                "is_active": inv.invited_by.is_active,
+                "created_at": inv.invited_by.created_at,
+            },
+            "role": inv.role,
+            "status": inv.status,
+            "created_at": inv.created_at,
+        }
+        for inv in invitations
+    ]
+
+
+@api.post("/invitations/{invitation_id}/respond", auth=auth, response={200: SuccessOut, 400: ErrorOut, 403: ErrorOut, 404: ErrorOut}, tags=["Team Invitations"])
+def respond_to_invitation(request, invitation_id: str, payload: TeamInvitationRespondIn):
+    """Aceptar o rechazar una invitación"""
+    user = get_user_from_request(request)
+
+    invitation = get_object_or_404(TeamInvitation, id=invitation_id)
+
+    # Solo el invitado puede responder
+    if invitation.invited_user != user:
+        return 403, {"detail": "Only the invited user can respond to this invitation"}
+
+    # Validar que esté pendiente
+    if invitation.status != 'pending':
+        return 400, {"detail": f"Invitation is already {invitation.status}"}
+
+    # Validar acción
+    if payload.action not in ['accept', 'reject']:
+        return 400, {"detail": "Action must be 'accept' or 'reject'"}
+
+    if payload.action == 'accept':
+        # Crear membresía
+        TeamUser.objects.create(
+            team=invitation.team,
+            user=user,
+            role=invitation.role,
+        )
+        invitation.status = 'accepted'
+        invitation.save()
+        return {"success": True, "message": f"You joined {invitation.team.name} as {invitation.role}"}
+    else:
+        invitation.status = 'rejected'
+        invitation.save()
+        return {"success": True, "message": f"Invitation to {invitation.team.name} rejected"}
+
+
+@api.get("/teams/{team_id}/invitations", auth=auth, response={200: List[TeamInvitationOut], 403: ErrorOut, 404: ErrorOut}, tags=["Team Invitations"])
+def list_team_invitations(request, team_id: str):
+    """Ver invitaciones pendientes del equipo"""
+    user = get_user_from_request(request)
+    team = get_object_or_404(Team, id=team_id)
+
+    # Verificar que el usuario es miembro del equipo
+    if not TeamUser.objects.filter(team=team, user=user).exists():
+        return 403, {"detail": "You are not a member of this team"}
+
+    invitations = TeamInvitation.objects.filter(
+        team=team, status='pending'
+    ).select_related('team', 'team__owner', 'invited_user', 'invited_by')
+
+    return [
+        {
+            "id": inv.id,
+            "team": {
+                "id": inv.team.id,
+                "name": inv.team.name,
+                "description": inv.team.description,
+                "owner": {
+                    "github_handle": inv.team.owner.github_handle,
+                    "email": inv.team.owner.email,
+                    "display_name": inv.team.owner.display_name,
+                    "is_active": inv.team.owner.is_active,
+                    "created_at": inv.team.owner.created_at,
+                },
+                "created_at": inv.team.created_at,
+            },
+            "invited_user": {
+                "github_handle": inv.invited_user.github_handle,
+                "email": inv.invited_user.email,
+                "display_name": inv.invited_user.display_name,
+                "is_active": inv.invited_user.is_active,
+                "created_at": inv.invited_user.created_at,
+            },
+            "invited_by": {
+                "github_handle": inv.invited_by.github_handle,
+                "email": inv.invited_by.email,
+                "display_name": inv.invited_by.display_name,
+                "is_active": inv.invited_by.is_active,
+                "created_at": inv.invited_by.created_at,
+            },
+            "role": inv.role,
+            "status": inv.status,
+            "created_at": inv.created_at,
+        }
+        for inv in invitations
+    ]
 
 
 # ============================================
