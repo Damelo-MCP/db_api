@@ -790,6 +790,15 @@ def delete_session(request, session_id: str):
     if session.owner != user:
         return 403, {"detail": "Only the owner can delete this session"}
 
+    # Eliminar reports de versiones archivadas en S3
+    for version in session.versions.all():
+        if version.report_url:
+            s3_service.delete_session_report(version.report_url)
+
+    # Eliminar report principal de S3
+    if session.report_url:
+        s3_service.delete_session_report(session.report_url)
+
     session.delete()
 
     return {
