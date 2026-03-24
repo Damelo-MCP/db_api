@@ -69,6 +69,34 @@ class Session(models.Model):
         return f"{self.title} by @{self.owner.github_handle}"
 
 
+class SessionVersion(models.Model):
+    """Snapshot del estado de una sesión antes de cada update."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='versions')
+    version_number = models.PositiveIntegerField()
+    title = models.CharField(max_length=500)
+    description = models.TextField(null=True, blank=True)
+    session_data = models.TextField()
+    repo = models.CharField(max_length=100, null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    is_public = models.BooleanField()
+    report_url = models.URLField(max_length=1000, null=True, blank=True)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField()
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'fenix_session_versions'
+        ordering = ['-version_number']
+        unique_together = [['session', 'version_number']]
+        indexes = [
+            models.Index(fields=['session', '-version_number']),
+        ]
+
+    def __str__(self):
+        return f"{self.session.title} v{self.version_number}"
+
+
 class TeamUser(models.Model):
     """Relación entre equipos y usuarios"""
     ROLE_CHOICES = [

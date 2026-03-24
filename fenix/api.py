@@ -2,18 +2,19 @@ from ninja import NinjaAPI, Router
 from ninja.security import APIKeyHeader
 from django.shortcuts import get_object_or_404
 from django.http import HttpRequest
-from django.db.models import Q
+from django.db.models import Q, Max
 from typing import List
 from dotenv import load_dotenv
 
 import os
 
-from .models import User, Team, Session, TeamUser, TeamSession, TeamInvitation
+from .models import User, Team, Session, SessionVersion, TeamUser, TeamSession, TeamInvitation
 from .schemas import (
     UserOut, ValidateOrCreateUserIn, ValidateOrCreateUserOut,
     TeamOut, TeamCreateIn, TeamDetailOut, TeamAddMemberIn, TeamMemberOut,
     TeamInvitationCreateIn, TeamInvitationOut, TeamInvitationRespondIn,
     SessionOut, SessionCreateIn, SessionDetailOut, SessionUpdateIn,
+    SessionVersionOut, SessionVersionDetailOut,
     ShareSessionWithTeamIn, ShareSessionWithTeamOut, TeamSessionOut,
     ErrorOut, SuccessOut
 )
@@ -709,6 +710,33 @@ def update_session(request, session_id: str, payload: SessionUpdateIn):
         if not is_team_member:
             return 403, {"detail": "Only the owner or a team member can update this session"}
 
+    # Crear snapshot de la versión actual antes de actualizar
+    last_version = SessionVersion.objects.filter(session=session).aggregate(
+        max_v=Max('version_number')
+    )['max_v'] or 0
+    next_version = last_version + 1
+
+    archived_report_url = None
+    if session.report_url:
+        archived_report_url = s3_service.archive_session_version(
+            report_url=session.report_url,
+            version_number=next_version,
+        )
+
+    SessionVersion.objects.create(
+        session=session,
+        version_number=next_version,
+        title=session.title,
+        description=session.description,
+        session_data=session.session_data,
+        repo=session.repo,
+        metadata=session.metadata,
+        is_public=session.is_public,
+        report_url=archived_report_url,
+        changed_by=user,
+        created_at=session.updated_at,
+    )
+
     # Actualizar campos si están presentes
     if payload.title is not None:
         session.title = payload.title
@@ -767,6 +795,95 @@ def delete_session(request, session_id: str):
     return {
         "success": True,
         "message": "Session deleted successfully"
+    }
+
+
+# ============================================
+# SESSION VERSION ENDPOINTS
+# ============================================
+
+@api.get("/sessions/{session_id}/versions", auth=auth, response={200: List[SessionVersionOut], 403: ErrorOut, 404: ErrorOut}, tags=["Session Versions"])
+def list_session_versions(request, session_id: str):
+    """Listar todas las versiones anteriores de una sesión"""
+    user = get_user_from_request(request)
+    session = get_object_or_404(Session, id=session_id)
+
+    has_access = (
+        session.owner == user or
+        session.is_public or
+        TeamSession.objects.filter(
+            session=session,
+            team__team_users__user=user
+        ).exists()
+    )
+    if not has_access:
+        return 403, {"detail": "You don't have access to this session"}
+
+    versions = SessionVersion.objects.filter(
+        session=session
+    ).select_related('changed_by').order_by('-version_number')
+
+    return [
+        {
+            "id": v.id,
+            "version_number": v.version_number,
+            "title": v.title,
+            "description": v.description,
+            "repo": v.repo,
+            "is_public": v.is_public,
+            "report_url": v.report_url,
+            "changed_by": {
+                "github_handle": v.changed_by.github_handle,
+                "email": v.changed_by.email,
+                "display_name": v.changed_by.display_name,
+                "is_active": v.changed_by.is_active,
+                "created_at": v.changed_by.created_at,
+            } if v.changed_by else None,
+            "created_at": v.created_at,
+            "archived_at": v.archived_at,
+        }
+        for v in versions
+    ]
+
+
+@api.get("/sessions/{session_id}/versions/{version_number}", auth=auth, response={200: SessionVersionDetailOut, 403: ErrorOut, 404: ErrorOut}, tags=["Session Versions"])
+def get_session_version(request, session_id: str, version_number: int):
+    """Obtener una versión histórica específica de una sesión"""
+    user = get_user_from_request(request)
+    session = get_object_or_404(Session, id=session_id)
+
+    has_access = (
+        session.owner == user or
+        session.is_public or
+        TeamSession.objects.filter(
+            session=session,
+            team__team_users__user=user
+        ).exists()
+    )
+    if not has_access:
+        return 403, {"detail": "You don't have access to this session"}
+
+    version = get_object_or_404(SessionVersion, session=session, version_number=version_number)
+
+    return {
+        "id": version.id,
+        "version_number": version.version_number,
+        "title": version.title,
+        "description": version.description,
+        "session_data": version.session_data,
+        "repo": version.repo,
+        "metadata": version.metadata,
+        "is_public": version.is_public,
+        "report_url": version.report_url,
+        "changed_by": {
+            "github_handle": version.changed_by.github_handle,
+            "email": version.changed_by.email,
+            "display_name": version.changed_by.display_name,
+            "is_active": version.changed_by.is_active,
+            "created_at": version.changed_by.created_at,
+        } if version.changed_by else None,
+        "created_at": version.created_at,
+        "archived_at": version.archived_at,
     }
 
 

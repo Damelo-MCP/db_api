@@ -129,6 +129,40 @@ class S3Service:
             print(f"Error updating S3 report: {e}")
             return None
 
+    def archive_session_version(
+        self,
+        report_url: str,
+        version_number: int,
+    ) -> Optional[str]:
+        """
+        Copia server-side del reporte actual a una key versionada en S3.
+
+        Original: reports/{handle}/{session_id}_{timestamp}.html
+        Archivo:  reports/{handle}/versions/{session_id}_v{N}.html
+        """
+        try:
+            s3_key = report_url.split('.com/')[-1]
+            parts = s3_key.rsplit('/', 1)
+            directory = parts[0]
+            filename = parts[1]
+            session_id_part = filename.split('_')[0]
+
+            archive_key = f"{directory}/versions/{session_id_part}_v{version_number}.html"
+
+            self.s3_client.copy_object(
+                Bucket=self.bucket_name,
+                CopySource={'Bucket': self.bucket_name, 'Key': s3_key},
+                Key=archive_key,
+                ContentType='text/html; charset=utf-8',
+                ContentDisposition='inline',
+            )
+
+            return f"https://{self.bucket_name}.s3.amazonaws.com/{archive_key}"
+
+        except ClientError as e:
+            print(f"Error archiving version to S3: {e}")
+            return None
+
     def delete_session_report(self, report_url: str) -> bool:
         """
         Elimina un informe de sesión de S3

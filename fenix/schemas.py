@@ -145,6 +145,38 @@ class SessionUpdateIn(Schema):
 
 
 # ============================================
+# SESSION VERSION SCHEMAS
+# ============================================
+
+class SessionVersionOut(Schema):
+    id: UUID
+    version_number: int
+    title: str
+    description: Optional[str] = None
+    repo: Optional[str] = None
+    is_public: bool
+    report_url: Optional[str] = None
+    changed_by: Optional[UserOut] = None
+    created_at: datetime
+    archived_at: datetime
+
+
+class SessionVersionDetailOut(Schema):
+    id: UUID
+    version_number: int
+    title: str
+    description: Optional[str] = None
+    session_data: str
+    repo: Optional[str] = None
+    metadata: dict
+    is_public: bool
+    report_url: Optional[str] = None
+    changed_by: Optional[UserOut] = None
+    created_at: datetime
+    archived_at: datetime
+
+
+# ============================================
 # TEAM SESSION SCHEMAS (sharing)
 # ============================================
 
