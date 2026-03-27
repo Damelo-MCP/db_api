@@ -24,18 +24,40 @@ class S3Service:
         )
         self.bucket_name = os.getenv('S3_BUCKET_NAME')
 
-    def _format_html(self, html_content: str) -> str:
+    def _format_html(self, html_content: str, title: str = "", description: str = "") -> str:
         """
         Formatea HTML minificado a HTML bien indentado y estructurado.
+        Inyecta OG meta tags si no están presentes.
 
         Args:
             html_content: HTML en una sola línea o minificado
+            title: Título de la sesión para OG tags
+            description: Descripción de la sesión para OG tags
 
         Returns:
-            HTML formateado con indentación correcta
+            HTML formateado con indentación correcta y OG tags
         """
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Inject OG meta tags if not present
+            head = soup.find('head')
+            if head and title:
+                existing_og = soup.find('meta', attrs={'property': 'og:title'})
+                if not existing_og:
+                    og_tags = [
+                        soup.new_tag('meta', attrs={'property': 'og:title', 'content': title}),
+                        soup.new_tag('meta', attrs={'property': 'og:description', 'content': description or title}),
+                        soup.new_tag('meta', attrs={'property': 'og:image', 'content': 'https://damelo.sh/banner.png'}),
+                        soup.new_tag('meta', attrs={'property': 'og:type', 'content': 'article'}),
+                        soup.new_tag('meta', attrs={'name': 'twitter:card', 'content': 'summary_large_image'}),
+                        soup.new_tag('meta', attrs={'name': 'twitter:title', 'content': title}),
+                        soup.new_tag('meta', attrs={'name': 'twitter:description', 'content': description or title}),
+                        soup.new_tag('meta', attrs={'name': 'twitter:image', 'content': 'https://damelo.sh/banner.png'}),
+                    ]
+                    for tag in og_tags:
+                        head.append(tag)
+
             formatted_html = soup.prettify()
             return formatted_html
         except Exception as e:
@@ -47,7 +69,9 @@ class S3Service:
         self,
         session_id: str,
         content: str,
-        github_handle: str
+        github_handle: str,
+        title: str = "",
+        description: str = "",
     ) -> Optional[str]:
         """
         Sube un informe de sesión a S3 en formato .html
@@ -56,6 +80,8 @@ class S3Service:
             session_id: UUID de la sesión
             content: Contenido HTML del informe (puede estar minificado)
             github_handle: Handle de GitHub del owner
+            title: Título de la sesión (para OG tags)
+            description: Descripción de la sesión (para OG tags)
 
         Returns:
             URL pública del archivo en S3, o None si falla
@@ -68,8 +94,8 @@ class S3Service:
         s3_key = f"reports/{github_handle}/{file_name}"
 
         try:
-            # Formatear HTML antes de subir
-            formatted_content = self._format_html(content)
+            # Formatear HTML e inyectar OG tags antes de subir
+            formatted_content = self._format_html(content, title=title, description=description)
 
             # Subir archivo a S3
             # El acceso público se configura via Bucket Policy (no ACL)
@@ -86,9 +112,10 @@ class S3Service:
                 }
             )
 
-            # Generar URL pública PERMANENTE
-            # Este link funciona indefinidamente mientras el archivo exista
-            url = f"https://{self.bucket_name}.s3.amazonaws.com/{s3_key}"
+            # URL via CloudFront custom domain (damelo.sh)
+            # Clean URL without .html extension — CloudFront Function appends it
+            clean_key = s3_key.removesuffix('.html')
+            url = f"https://damelo.sh/{clean_key}"
 
             return url
 

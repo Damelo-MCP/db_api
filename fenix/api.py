@@ -546,7 +546,9 @@ def create_session(request, payload: SessionCreateIn):
     report_url = s3_service.upload_session_report(
         session_id=str(session.id),
         content=payload.session_data,
-        github_handle=user.github_handle
+        github_handle=user.github_handle,
+        title=payload.title,
+        description=payload.description,
     )
 
     # Actualizar sesión con la URL del reporte
