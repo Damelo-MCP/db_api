@@ -87,14 +87,14 @@ class S3Service:
         style_tag.string = (
             '.damelo-badge{'
             'position:fixed;bottom:16px;right:16px;z-index:9999;'
-            'display:inline-flex;align-items:center;gap:6px;'
-            'padding:6px 12px;'
+            'display:inline-flex;align-items:center;gap:8px;'
+            'padding:10px 18px;'
             'background:var(--surface,#fff);'
             'color:var(--text-secondary,#5A6B7C);'
             'border:1px solid var(--border,#E2E8F0);'
-            'border-radius:8px;'
+            'border-radius:10px;'
             "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;"
-            'font-size:13px;font-weight:500;text-decoration:none;'
+            'font-size:15px;font-weight:500;text-decoration:none;'
             'box-shadow:0 1px 3px rgba(0,0,0,.08);'
             'transition:box-shadow .2s,border-color .2s;'
             'opacity:.85;'
@@ -118,7 +118,7 @@ class S3Service:
         banner_html = (
             '<a class="damelo-badge" href="https://damelo.sh" '
             'target="_blank" rel="noopener noreferrer">'
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none">'
+            '<svg width="20" height="20" viewBox="0 0 24 24" fill="none">'
             '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" '
             'opacity="0.6" stroke="currentColor" stroke-width="1.5" '
             'stroke-linejoin="round"/></svg>'
