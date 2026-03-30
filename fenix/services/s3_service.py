@@ -122,7 +122,7 @@ class S3Service:
             '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" '
             'opacity="0.6" stroke="currentColor" stroke-width="1.5" '
             'stroke-linejoin="round"/></svg>'
-            'Built with Dámelo</a>'
+            'Want to use Dámelo?</a>'
         )
         banner_tag = BeautifulSoup(banner_html, 'html.parser')
         body.append(banner_tag)
