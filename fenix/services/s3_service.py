@@ -58,12 +58,74 @@ class S3Service:
                     for tag in og_tags:
                         head.append(tag)
 
+            # Inject "Built with Dámelo" banner
+            self._inject_damelo_banner(soup)
+
             formatted_html = soup.prettify()
             return formatted_html
         except Exception as e:
             print(f"Warning: Could not format HTML: {e}")
             # Si falla el formateo, devolver el original
             return html_content
+
+    def _inject_damelo_banner(self, soup: BeautifulSoup) -> None:
+        """
+        Inyecta un badge fijo "Built with Dámelo" al final del <body>.
+        Usa CSS custom properties del documento para adaptarse a cualquier paleta.
+        Idempotente: no inyecta si el badge ya existe.
+        """
+        # Idempotency check
+        if soup.find('a', class_='damelo-badge'):
+            return
+
+        body = soup.find('body')
+        if not body:
+            return
+
+        # CSS — uses document's CSS variables with neutral fallbacks
+        style_tag = soup.new_tag('style')
+        style_tag.string = (
+            '.damelo-badge{'
+            'position:fixed;bottom:16px;right:16px;z-index:9999;'
+            'display:inline-flex;align-items:center;gap:6px;'
+            'padding:6px 12px;'
+            'background:var(--surface,#fff);'
+            'color:var(--text-secondary,#5A6B7C);'
+            'border:1px solid var(--border,#E2E8F0);'
+            'border-radius:8px;'
+            "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;"
+            'font-size:13px;font-weight:500;text-decoration:none;'
+            'box-shadow:0 1px 3px rgba(0,0,0,.08);'
+            'transition:box-shadow .2s,border-color .2s;'
+            'opacity:.85;'
+            '}'
+            '.damelo-badge:hover{'
+            'border-color:var(--accent,#2563EB);'
+            'box-shadow:0 2px 8px rgba(0,0,0,.12);'
+            'opacity:1;'
+            '}'
+            '@media print{.damelo-badge{display:none}}'
+        )
+
+        # Inject style into <head> if available, otherwise into <body>
+        head = soup.find('head')
+        if head:
+            head.append(style_tag)
+        else:
+            body.append(style_tag)
+
+        # Banner HTML with inline SVG (currentColor inherits --text-secondary)
+        banner_html = (
+            '<a class="damelo-badge" href="https://damelo.sh" '
+            'target="_blank" rel="noopener noreferrer">'
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none">'
+            '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor" '
+            'opacity="0.6" stroke="currentColor" stroke-width="1.5" '
+            'stroke-linejoin="round"/></svg>'
+            'Built with Dámelo</a>'
+        )
+        banner_tag = BeautifulSoup(banner_html, 'html.parser')
+        body.append(banner_tag)
 
     def upload_session_report(
         self,
